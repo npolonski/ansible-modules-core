@@ -150,6 +150,76 @@ def boto_exception(err):
 
     return error
 
+def get_all_groups(iam):
+    try:
+        orig_group_list = []
+        list_groups_request = iam.get_all_groups()
+        while list_groups_request:
+            orig_group_list.extend([gl['group_name'] for gl in list_groups_request.list_groups_result.groups])
+            if 'marker' in list_groups_request.list_groups_result \
+                    and list_groups_request.list_groups_result.marker:
+                list_groups_request = iam.get_all_groups(None,'%s' % list_groups_request.list_groups_result.marker, '100')
+            else:
+                list_groups_request = False
+
+    except boto.exception.BotoServerError, err:
+        module.fail_json(msg=err.message)
+
+    return orig_group_list
+
+def get_all_users(iam):
+    try:
+        orig_user_list = []
+        list_users_request = iam.get_all_users()
+        while list_users_request:
+            orig_user_list.extend([ul['user_name'] for ul in list_users_request.list_users_result.users])
+            if 'marker' in list_users_request.list_users_result \
+                    and list_users_request.list_users_result.marker:
+                list_users_request = iam.get_all_users(None, '%s' % list_users_request.list_users_result.marker, '100')
+            else:
+                list_users_request = False
+
+    except boto.exception.BotoServerError, err:
+        module.fail_json(msg=err.message)
+
+    return orig_user_list
+        
+def get_all_roles(iam):
+    try:
+        orig_role_list = []
+        list_roles_request = iam.list_roles()
+        while list_roles_request:
+            orig_role_list.extend([rl['role_name'] for rl in list_roles_request.list_roles_response.
+                                  list_roles_result.roles])
+            if 'marker' in list_roles_request.list_roles_response.list_roles_result \
+                    and list_roles_request.list_roles_response.list_roles_result.marker:
+                list_roles_request = iam.list_roles(None,'%s' % list_roles_request.list_roles_response.list_roles_result.marker ,'100')
+            else:
+                list_roles_request = False
+
+    except boto.exception.BotoServerError, err:
+        module.fail_json(msg=err.message)
+
+    return orig_role_list
+
+def get_all_profiles(iam):
+    try:
+        orig_prof_list = []
+        list_profs_request = iam.list_instance_profiles()
+        while list_profs_request:
+            orig_prof_list.extend([ap['instance_profile_name'] for ap in list_profs_request.
+                                  list_instance_profiles_response.
+                                  list_instance_profiles_result.
+                                  instance_profiles])
+            if 'marker' in list_profs_request.list_instance_profiles_response.list_instance_profiles_result \
+                    and list_profs_request.list_instance_profiles_response.list_instance_profiles_result.marker:
+                list_profs_request = iam.list_instance_profiles(None, '%s' % list_profs_request.list_instance_profiles_response.list_instance_profiles_result.marker, '100')
+            else:
+                list_profs_request = False
+    except boto.exception.BotoServerError, err:
+        module.fail_json(msg=err.message)
+
+    return orig_prof_list
 
 def create_user(module, iam, name, pwd, path, key_state, key_count):
     key_qty = 0
@@ -436,15 +506,13 @@ def create_role(module, iam, name, path, role_list, prof_list):
             changed = True
             iam.create_role(
                 name, path=path).create_role_response.create_role_result.role.role_name
-
             if name not in prof_list:
                 iam.create_instance_profile(name, path=path)
                 iam.add_role_to_instance_profile(name, name)
     except boto.exception.BotoServerError, err:
         module.fail_json(changed=changed, msg=str(err))
     else:
-        updated_role_list = [rl['role_name'] for rl in iam.list_roles().list_roles_response.
-                             list_roles_result.roles]
+        updated_role_list = get_all_roles(iam)
     return changed, updated_role_list
 
 
@@ -488,8 +556,7 @@ def delete_role(module, iam, name, role_list, prof_list):
     except boto.exception.BotoServerError, err:
         module.fail_json(changed=changed, msg=str(err))
     else:
-        updated_role_list = [rl['role_name'] for rl in iam.list_roles().list_roles_response.
-                             list_roles_result.roles]
+        updated_role_list = get_all_roles(iam)
     return changed, updated_role_list
 
 
@@ -565,31 +632,17 @@ def main():
             iam = connect_to_aws(boto.iam, region, **aws_connect_kwargs)
         else:
             iam = boto.iam.connection.IAMConnection(**aws_connect_kwargs)
+
+        orig_group_list = get_all_groups(iam)
+        orig_user_list = get_all_users(iam)
+        orig_role_list = get_all_roles(iam)
+        orig_prof_list = get_all_profiles(iam)
+
     except boto.exception.NoAuthHandlerFound, e:
         module.fail_json(msg=str(e))
 
     result = {}
     changed = False
-
-    try:
-        orig_group_list = [gl['group_name'] for gl in iam.get_all_groups().
-                list_groups_result.
-                groups]
-
-        orig_user_list = [ul['user_name'] for ul in iam.get_all_users().
-                list_users_result.
-                users]
-
-        orig_role_list = [rl['role_name'] for rl in iam.list_roles().list_roles_response.
-                list_roles_result.
-                roles]
-
-        orig_prof_list = [ap['instance_profile_name'] for ap in iam.list_instance_profiles().
-                list_instance_profiles_response.
-                list_instance_profiles_result.
-                instance_profiles]
-    except boto.exception.BotoServerError, err:
-        module.fail_json(msg=err.message)
 
     if iam_type == 'user':
         been_updated = False
